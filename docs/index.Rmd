@@ -1,0 +1,1450 @@
+---
+title: Enhanced Deterministic Gated Hierarchical Item Response Model to Simultaneously Identify Compromised Items and Examinees with Item Preknowledge Using Both Response Accuracy and Response Time Data
+subtitle:
+author:
+  name: Cengiz Zopluoglu
+  affiliation: University of Oregon
+date: 6/11/2025
+output: 
+  html_document:
+    keep_md: false
+    theme: journal
+    highlight: haddock
+    code_folding: show
+    toc: yes
+    toc_depth: 4
+    toc_float: yes
+always_allow_html: true
+urlcolor: blue
+mainfont: cochineal
+sansfont: Fira Sans
+monofont: Fira Code ## Although, see: https://tex.stackexchange.com/q/294362
+
+## Automatically knit to both formats:
+knit: (function(inputFile, encoding) {
+ rmarkdown::render(inputFile, encoding = encoding, 
+ output_format = 'all') 
+ })
+---
+
+```{r klippy, echo=FALSE, include=TRUE}
+klippy::klippy(position=c('top','right'),color='#33C1FF')
+```
+
+
+<style>
+.list-group-item.active, .list-group-item.active:focus, .list-group-item.active:hover {
+    z-index: 2;
+    color: #fff;
+    background-color: #33C1FF;
+    border-color: #97CAEF;
+}
+
+</style>
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(comment = "",fig.align='center',message = FALSE,warning = FALSE)
+require(here)
+require(ggplot2)
+require(plot3D)
+require(kableExtra)
+require(knitr)
+require(giski)
+require(magick)
+
+options(scipen=99)
+
+```
+
+`r paste('[Updated:',format(Sys.time(),'%a, %b %d, %Y - %H:%M:%S'),']')`
+
+<font color="black">
+
+
+```{r, eval=TRUE,echo=FALSE}
+require(cmdstanr)
+fit <- readRDS(here("./do_not_upload/model_fit.RDS"))
+
+
+d_long <- read.csv(here('./data/simdata_long.csv'))
+d_wide <- read.csv(here('./data/simdata_wide.csv'))
+```
+
+# Acknowledgement
+
+This tutorial is a product of a research project funded by Duolingo, Inc. through Competitive Research Grant Program to support topics of interest related to Duolingo's English Test's ongoing research agenda.
+
+# Introduction
+
+This tutorial provides a detailed introduction to a newly proposed hierarchical item response model that simultaneously identifies both compromised items and examinees with item preknowledge using both response accuracy and response time data. This model combines the two pieces that were independently developed and introduced. 
+
+1) [Enhanced Deterministic Gated Item Response Model to Simultaneously Identify Compromised Items and Examinees with Item Preknowledge Using Response Accuracy Data](https://czopluoglu.github.io/duolingo_dgirt/)
+
+2) [Enhanced Deterministic Gated Lognormal Response Time Model to Simultaneously Identify Compromised Items and Examinees with Item Preknowledge Using Response Time Data](https://czopluoglu.github.io/duolingo_dglnrt/)
+
+This model also can be considered a specific adaptation of [van der Linden's hiearchical framework that models both speed and accuracy](https://link.springer.com/article/10.1007/s11336-006-1478-z). 
+
+# Model Description
+
+## First-level models
+
+### Response accuracy model
+
+This section describes the model fitted to the response accuracy data using the following notations:
+
+- Items are indexed by $i = 1,...,I$,
+
+- Examinees are indexed by $j = 1,...,J$
+
+- For the $j^{th}$ examinee, $\mathbf{R}_j = (\mathrm{R}_{j1}, \ldots, \mathrm{R}_{jI})$ represents a vector of dichotomous item responses for $I$ items, with realizations $\mathbf{r}_j = (\mathrm{r}_{j1}, \ldots, \mathrm{r}_{jI})$. 
+
+- For the $i^{th}$ item, item difficulty parameter is denoted as $b_i \in \mathbb{R}$.
+
+The proposed model defines two latent trait parameters for each examinee:
+
+- $\theta_{tj} \in \mathbb{R}$: The true latent trait when the $j^{th}$ examinee responds to an item without prior knowledge.
+
+- $\theta_{cj} \in \mathbb{R}$: The cheating latent trait when the examinee responds to an item with prior knowledge.
+
+Additionally, we define:
+
+- A binary parameter for each examinee to indicate item preknowledge status, $H_j$, where $H_j = 0$ means the examinee is honest and does not have item preknowledge, and $H_j = 1$ means the examinee is dishonest and has item preknowledge.
+
+- A binary parameter for each item to indicate compromise status, $C_i$, where $C_i = 0$ means the item is not compromised, and $C_i = 1$ means the item is compromised.
+
+An observed binary response (1 for correct, 0 for incorrect) of the $j^{th}$ examinee on the $i^{th}$ item is assumed to follow the distribution:
+
+$$R_{ij} \sim f(r_{ij}; \theta_{tj}, \theta_{cj}, H_j, b_i, C_i).$$
+Here, $f(r_{ij}; \theta_{tj}, \theta_{cj}, H_j, b_i, C_i)$ denotes a Bernoulli probability function with a success parameter:
+
+$$P(r_{ij} = 1 \mid \theta_{tj}, \theta_{cj}, H_j, b_i, C_i) = \frac{1}{1 + e^{b_i - \theta_j}},$$
+
+where $\theta_j$ is defined as:
+
+$$\theta_j = 
+\begin{cases} 
+\theta_{cj}, & \text{if } H_j = 1 \text{ and } C_i = 1, \\ 
+\theta_{tj}, & \text{otherwise}. 
+\end{cases}$$
+
+### Response time model
+
+The response time model incorporates additional parameters specific to response times while building on the notations introduced for response accuracy analysis. For the $j^{th}$ examinee
+$\mathbf{RT}_j = (\mathrm{RT}_{j1}, \ldots, \mathrm{RT}_{jI})$ represents the vector of log-transformed response times for $I$ items, with realizations $\mathbf{rt}_j = (\mathrm{rt}_{j1}, \ldots, \mathrm{rt}_{jI})$. 
+
+For the $i^{th}$ item, $\alpha_i \in \mathbb{R}^+$ and $\beta_i \in \mathbb{R}$ denote the time-discrimination and time-intensity parameters, respectively.
+
+Two latent speed parameters are defined for each examinee: true latent speed ($\tau_{tj} \in \mathbb{R}$) used when responding to uncompromised items without prior knowledge, and cheating latent speed ($\tau_{cj} \in \mathbb{R}$) used when responding to compromised items with prior knowledge.
+
+The log response time for the $j^{th}$ examinee on the $i^{th}$ item is modeled as:
+
+$$
+\mathrm{RT}_{ij} \sim f(\mathrm{rt}_{ij}; \tau_{tj}, \tau_{cj}, H_j, \alpha_i, \beta_i, C_i),$$
+
+where, $f(.)$ is a normal density function and defined as:
+
+$$
+f(\mathrm{rt}_{ij}; \tau_{tj}, \tau_{cj}, H_j, \alpha_i, \beta_i, C_i) = \frac{1}{\sigma_i \sqrt{2\pi}} \exp\left(-\frac{1}{2} \left( \frac{\mathrm{rt}_{ij} - \mu_{ij}}{\sigma_i} \right)^2 \right)
+$$
+
+The mean $\mu_{ij}$ and standard deviation $\sigma_{i}$ are given by:
+
+$$
+\mu_{ij} = 
+\begin{cases} 
+\beta_i - \tau_{cj}, & \text{if } H_j = 1 \text{ and } C_i = 1, \\ 
+\beta_i - \tau_{tj}, & \text{otherwise}.
+\end{cases}
+$$
+$$
+\sigma_i = \frac{1}{\alpha_i}
+.$$
+
+This model reflects that an examinee with prior knowledge (i.e., $H_j=1$ and $C_i=1$) uses the cheating latent speed, $\tau_{cj}$. In all other cases, the true latent speed, $\tau_{tj}$, is used.
+
+### Joint density of response time and response accuracy and marginalizing the discrete parameters
+
+The joint probability density of the response time and response accuracy for a given item by a given person can be written as
+
+$$f\left(r_{ij},{rt}_{ij}\ \right|\theta_{tj},\theta_{cj},\tau_{tj},\tau_{cj},H_j,{b_i,\ \alpha}_i,\beta_i,C_i)=\ f\left(r_{ij};\theta_{tj},\theta_{cj},H_j,b_i,C_i\right)\ \times\ f\left({rt}_{ij};\tau_{tj},\tau_{cj},H_j,\alpha_i,\beta_i,C_i\right).$$
+
+Since Stan does not directly handle discrete parameters, marginalization of $H_j$ and $C_i$ is required. This involves summing over the four possible combinations of $H_j$ and $C_i$:
+
+- $H_j = 0, C_i = 0$: Honest examinee responds to an uncompromised item.
+- $H_j = 1, C_i = 0$: Dishonest examinee responds to an uncompromised item.
+- $H_j = 0, C_i = 1$: Honest examinee responds to a compromised item.
+- $H_j = 1, C_i = 1$: Dishonest examinee responds to a compromised item.
+
+The probability density then can be expressed as:
+
+$$f\left(r_{ij},{rt}_{ij}\ \right|\theta_{tj},\theta_{cj},\tau_{tj},\tau_{cj},H_j,{b_i,\ \alpha}_i,\beta_i,C_i) = \sum_{H_j, C_i} \ f\left(r_{ij};\theta_{tj},\theta_{cj},H_j,b_i,C_i\right)\ \times f\left({rt}_{ij};\tau_{tj},\tau_{cj},H_j,\alpha_i,\beta_i,C_i\right) \times P(H_j) \times P(C_i).$$
+
+Or, more explicitly, we can write as:
+
+$$
+\begin{align*}
+&f\left(rt_{ij},\ r_{ij}\ ;\ \theta_{tj},\theta_{cj},\ \tau_{tj},\tau_{cj},H_j,b_i,\ \alpha_i,\beta_i,C_i\right) =
+f\left(rt_{ij};\tau_{cj},\alpha_i,\beta_i\right) \times f\left(r_{ij};\theta_{cj},b_i\right) \times P(H_j=1) \times P(C_i=1) \,+\\
+&\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\ \phantom{f\left(rt_{ij}, r_{ij} ; \ldots \right) =}
+f\left(rt_{ij};\tau_{tj},\alpha_i,\beta_i\right) \times f\left(r_{ij};\theta_{tj},b_i\right) \times P(H_j=1) \times P(C_i=0) \,+ \\
+&\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\phantom{f\left(rt_{ij}, r_{ij} ; \ldots \right) =}
+f\left(rt_{ij};\tau_{tj},\alpha_i,\beta_i\right) \times  f\left(r_{ij};\theta_{tj},b_i\right) \times P(H_j=0) \times P(C_i=1) \,+ \\
+&\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\,\phantom{f\left(rt_{ij}, r_{ij} ; \ldots \right) =}
+f\left(rt_{ij};\tau_{tj},\alpha_i,\beta_i\right) \times f\left(r_{ij};\theta_{tj},b_i\right) \times P(H_j=0) \times P(C_i=0)
+\end{align*}
+$$
+
+## Second-level models
+
+
+At the second level, we assume the latent trait and latent speed parameters are randomly drawn from a multivariate normal distribution.
+
+$$\left(
+\begin{array}{c}
+\boldsymbol{\theta}_t \\
+\boldsymbol{\theta}_c \\
+\boldsymbol{\tau_t} \\
+\boldsymbol{\tau_c}
+\end{array}
+\right)
+= N\left(\boldsymbol{\mu}_{\mathcal{P}},\ \boldsymbol{\Sigma}_{\mathcal{P}}\right),$$
+
+where $\boldsymbol{\mu}_{\mathcal{P}}$ is a vector of means and $\boldsymbol{\Sigma}_{\mathcal{P}}$ is the covariance matrix, which can be decomposed into a diagonal matrix of standard deviations and a correlation matrix for person parameters,
+
+$$
+\boldsymbol{\Sigma}_{\mathcal{P}} =
+\begin{pmatrix}
+\sigma_{\boldsymbol{\theta_t}} & 0 & 0 & 0 \\
+0 & \sigma_{\boldsymbol{\theta_c}} & 0 & 0 \\
+0 & 0 & \sigma_{\boldsymbol{\tau_t}} & 0 \\
+0 & 0 & 0 & \sigma_{\boldsymbol{\tau_c}}
+\end{pmatrix}
+\boldsymbol{\Omega}_{\mathcal{P}}
+\begin{pmatrix}
+\sigma_{\boldsymbol{\theta_t}} & 0 & 0 & 0 \\
+0 & \sigma_{\boldsymbol{\theta_c}} & 0 & 0 \\
+0 & 0 & \sigma_{\boldsymbol{\tau_t}} & 0 \\
+0 & 0 & 0 & \sigma_{\boldsymbol{\tau_c}}
+\end{pmatrix},
+$$
+
+$$
+\boldsymbol{\Omega}_{\mathcal{P}} =
+\begin{pmatrix}
+1 & \rho_{\theta_t, \theta_c} & \rho_{\theta_t, \tau_t} & \rho_{\theta_t, \tau_c} \\
+\rho_{\theta_t, \theta_c} & 1 & \rho_{\theta_c, \tau_t} & \rho_{\theta_c, \tau_c} \\
+\rho_{\theta_t, \tau_t} & \rho_{\theta_c, \tau_t} & 1 & \rho_{\tau_t, \tau_c} \\
+\rho_{\theta_t, \tau_c} & \rho_{\theta_c, \tau_c} & \rho_{\tau_t, \tau_c} & 1
+\end{pmatrix}.
+$$
+
+The item parameters in both components are assumed to follow a multivariate normal distribution similarly. Note that we work with the log of time discrimination parameters.
+
+$$
+\left(
+\begin{array}{c}
+\mathbf{b} \\
+\ln(\boldsymbol{\alpha}) \\
+\boldsymbol{\beta}
+\end{array}
+\right)
+= N\left(\boldsymbol{\mu}_I, \boldsymbol{\Sigma}_I\right)
+$$
+
+where $\boldsymbol{\mu}_I$ is a vector of means and $\boldsymbol{\Sigma}_I$ is the covariance matrix decomposed into a diagonal matrix of standard deviations and a correlation matrix for item parameters,
+
+$$
+\boldsymbol{\Sigma}_1 =
+\begin{pmatrix}
+\sigma_{\mathbf{b}} & 0 & 0 \\
+0 & \sigma_{\ln(\alpha)} & 0 \\
+0 & 0 & \sigma_{\beta}
+\end{pmatrix}
+\boldsymbol{\Omega}_1
+\begin{pmatrix}
+\sigma_{\mathbf{b}} & 0 & 0 \\
+0 & \sigma_{\ln(\alpha)} & 0 \\
+0 & 0 & \sigma_{\beta}
+\end{pmatrix},
+$$
+$$
+\boldsymbol{\Omega}_1 =
+\begin{pmatrix}
+1 & \rho_{\mathbf{b}, \ln(\alpha)} & \rho_{\mathbf{b}, \beta} \\
+\rho_{\mathbf{b}, \ln(\alpha)} & 1 & \rho_{\ln(\alpha), \beta} \\
+\rho_{\mathbf{b}, \beta} & \rho_{\ln(\alpha), \beta} & 1
+\end{pmatrix}.
+$$
+
+
+## Parameter Constraints
+
+The proposed model assumes that the latent cheating speed is higher than the true latent speed for any examinee $\tau_{cj} > \tau_{tj}$. Similarly, the proposed model assumes that the cheating latent trait is higher than the true latent trait for any examinee  $\theta_{cj} > \theta_{tj}$. As we aimed to sample all person parameters from a multivariate distribution jointly, there was no straightforward way to impose these partial constraints during the sampling process from a multivariate distribution. Therefore, we reparameterized this process. First, we define two new parameters,  $\Delta_{\theta_{j}}$ and $\Delta_{\tau_{j}}$, and they represent the change in true latent trait and latent speed parameters due to item preknowledge for the jth person. We also constrain both $\Delta_{\theta_{j}}$ and $\Delta_{\tau_{j}}$ to be larger than zero. Second, we sample the true latent parameters from a multivariate distribution.
+
+$$
+\left(
+\begin{array}{c}
+\boldsymbol{\theta}_t \\
+\boldsymbol{\tau}_t
+\end{array}
+\right)
+= N(\boldsymbol{\mu}_T,\, \boldsymbol{\Sigma}_T)
+$$
+
+$$
+\boldsymbol{\Sigma}_T =
+\begin{pmatrix}
+\sigma_{\boldsymbol{\theta}_t} & 0 \\
+0 & \sigma_{\boldsymbol{\tau}_t}
+\end{pmatrix}
+\boldsymbol{\Omega}_T
+\begin{pmatrix}
+\sigma_{\boldsymbol{\theta}_t} & 0 \\
+0 & \sigma_{\boldsymbol{\tau}_t}
+\end{pmatrix}
+$$
+
+$$
+\boldsymbol{\Omega}_T =
+\begin{pmatrix}
+1 & \rho_{\boldsymbol{\theta}_t, \boldsymbol{\tau}_t} \\
+\rho_{\boldsymbol{\theta}_t, \boldsymbol{\tau}_t} & 1
+\end{pmatrix}.
+$$
+
+Then, we independently sample the change in latent parameters due to item preknowledge from a multivariate distribution.
+
+$$
+\left(
+\begin{array}{c}
+\boldsymbol{\Delta}_{\boldsymbol{\theta}} \\
+\boldsymbol{\Delta}_{\boldsymbol{\tau}}
+\end{array}
+\right)
+= N(\boldsymbol{\mu}_{\boldsymbol{\Delta}},\, \boldsymbol{\Sigma}_{\boldsymbol{\Delta}})
+$$
+
+$$
+\boldsymbol{\Sigma}_{\boldsymbol{\Delta}} =
+\begin{pmatrix}
+\sigma_{\boldsymbol{\Delta}_{\boldsymbol{\theta}}} & 0 \\
+0 & \sigma_{\boldsymbol{\Delta}_{\boldsymbol{\tau}}}
+\end{pmatrix}
+\boldsymbol{\Omega}_{\boldsymbol{\Delta}}
+\begin{pmatrix}
+\sigma_{\boldsymbol{\Delta}_{\boldsymbol{\theta}}} & 0 \\
+0 & \sigma_{\boldsymbol{\Delta}_{\boldsymbol{\tau}}}
+\end{pmatrix}
+$$
+
+$$
+\boldsymbol{\Omega}_{\boldsymbol{\Delta}} =
+\begin{pmatrix}
+1 & \rho_{\boldsymbol{\Delta}_{\boldsymbol{\theta}}, \boldsymbol{\Delta}_{\boldsymbol{\tau}}} \\
+\rho_{\boldsymbol{\Delta}_{\boldsymbol{\theta}}, \boldsymbol{\Delta}_{\boldsymbol{\tau}}} & 1
+\end{pmatrix}.
+$$
+Finally, we obtain the cheating latent speed and latent trait parameters for the jth person, 
+
+$$
+\theta_{cj} = \theta_{tj} + \Delta_{\theta_{j}},\; \Delta_{\theta_{j}} > 0,
+$$
+
+$$
+\tau_{cj} = \tau_{tj} + \Delta_{\tau_{j}},\; \Delta_{\tau_{j}} > 0.
+$$
+This process is equivalent to sampling all latent variables from a multivariate distribution, where the parameters such as $\sigma_{\theta_c}$,$\sigma_{\tau_c}$,$\rho_{\theta_t,\theta_c}$,$\rho_{\theta_t, \tau_c}$,$\rho_{\theta_c, \tau_t}$,$\rho_{\theta_c, \tau_c}$,$\rho_{\tau_t, \tau_c}$ are constrained in a deterministic way as a function of elements found in $\boldsymbol{\Sigma}_T$,$\boldsymbol{\Omega}_T$,$\boldsymbol{\Sigma}_{\Delta}$,$\boldsymbol{\Omega}_{\Delta}$ (see Appendix for derivations).
+
+
+In addition, the mean of the true latent speed parameter was constrained to be equal to zero for scale identification. The sum of the item difficulty parameters was also constrained to be equal to zero for scale identification.
+
+
+## Prior Specifications
+
+For the person parameter side of the model, the following hyperprior distributions for the mean and standard deviations of latent speed parameters were specified:
+
+- $\mu_{\boldsymbol{\tau}_t} = 0$ (fixed)
+- $\mu_{\boldsymbol{\theta}_t} \sim N(0,1)$
+- $\mu_{\boldsymbol{\Delta}_\tau} \sim N(0,1), \quad \mu_{\boldsymbol{\Delta}_\tau} > 0$ (constrained to be positive)
+- $\mu_{\boldsymbol{\Delta}_\theta} \sim N(0,\,1), \quad \mu_{\boldsymbol{\Delta}_\theta} > 0$ (constrained to be positive)
+- $\sigma_{\boldsymbol{\tau}_t} \sim \mathrm{Exponential}(1)$
+- $\sigma_{\boldsymbol{\theta}_t} \sim \mathrm{Exponential}(1)$
+- $\sigma_{\boldsymbol{\Delta}_\tau} \sim \mathrm{Exponential}(1)$
+- $\sigma_{\boldsymbol{\Delta}_\theta} \sim \mathrm{Exponential}(1)$
+- $\boldsymbol{\Omega}_{\boldsymbol{T}} \sim \mathrm{LKJ}(1)$
+- $\boldsymbol{\Omega}_{\boldsymbol{\Delta}} \sim \mathrm{LKJ}(1)$
+- $P_{H_j=1} \sim \mathrm{Beta}(1,1)$
+
+The following hyperpriors are specified for the item parameters:
+
+- $\mu_{\boldsymbol{b}} \sim N(0,\,1)$
+- $\mu_{\ln{\left(\boldsymbol{\alpha}\right)}} \sim N(0,0.5)$
+- $\mu_{\boldsymbol{\beta}} \sim N(4,\,1)$
+- $\sigma_{\boldsymbol{b}} \sim \mathrm{Exponential}(1)$
+- $\sigma_{\ln{\left(\boldsymbol{\alpha}\right)}} \sim \mathrm{Exponential}(1)$
+- $\sigma_{\boldsymbol{\beta}} \sim \mathrm{Exponential}(1)$
+- $\boldsymbol{\Omega}_{\boldsymbol{I}} \sim \mathrm{LKJ}(1)$
+- $P_{C_i=1} \sim \mathrm{Beta}(1,1)$
+
+The sum of the item difficulty parameters was also constrained to be equal to zero by sampling values for (I – 1) items, and then the value of the item difficulty for the remaining item is determined by computing the negative sum of the item difficulty parameters for (I - 1) items.
+
+# Stan Model Syntax
+
+The whole Stan syntax for the model can be saved as a stan file ([Download the Stan model syntax](https://raw.githubusercontent.com/czopluoglu/duolingo_dghirt/refs/heads/main/script/dghirt.stan)).
+
+The syntax is annotated and aligned with the model description and notation as described above.
+
+
+# Data Generation
+
+To test the model's performance, I will simulate a dataset based on the following specifications:
+
+- 200 hypothetical examinees respond to 30 items.
+
+- 40 examinees (20% of all examinees) have item preknowledge for 15 items (half of items)
+
+The code below generates response time and response accuracy data with a certain set of specifications.
+
+```{r, eval=FALSE,echo=TRUE}
+require(MASS)
+require(MBESS)
+require(matrixStats)
+require(psych)
+################################################################################
+set.seed(6202021)
+
+N = 200       # number of examinees
+n = 30        # number of items
+pe <- 0.20    # proportion of examinees with item preknowledge
+pi <- 0.50    # proportion of compromised items
+
+# Generate the binary status of examinee item preknowledge
+# 1: examinee has item preknowledge
+# 0: examinee has item preknowledge
+
+tmp <- runif(N,0,1)
+H  <- ifelse(tmp<=quantile(tmp,pe),1,0)
+H
+table(H)
+
+# Generate the binary status of item compromise
+# 1: item is compromised
+# 0: item is not compromised
+
+tmp <- runif(n,0,1)
+C  <- ifelse(tmp<=quantile(tmp,pi),1,0)
+C
+table(C)
+
+################################################################################
+#                            RESPONSE TIME DATA
+################################################################################
+
+# Generate item parameters
+
+mu_beta        <- 3.5       # mean of time-intensity parameter
+mu_logalpha    <- 0.5       # mean of log of time-discrimination parameter
+sigma_beta     <- 0.3       # sd of time-intensity parameter
+sigma_logalpha <- 0.2       # sd of log of time-discrimination parameter
+omega_I        <- matrix(c(1,0.25,0.25,1),2,2)  # correlation matrix between beta 
+                                                # and log-alpha
+
+# mean vector of beta and log-alpha
+mu_I     <- c(mu_beta,mu_logalpha)
+# Covatiance matrix for beta and log-alpha
+Sigma_I  <- diag(c(sigma_beta,sigma_logalpha))%*%omega_I%*%diag(c(sigma_beta,sigma_logalpha)) 
+
+# Generate response time model item parameters
+
+item_par <- mvrnorm(n,mu=mu_I,Sigma=Sigma_I)  
+
+beta  <- item_par[,1]       # time intensity parameters
+alpha <- exp(item_par[,2])  # time discrimination parameters
+
+# Generate true and cheating latent speed parameters
+
+mu_taut      <- 0                          # mean of true latent speed
+sigma_taut   <- 0.1                        # sd of true latent speed
+mu_tauc      <- 0.4                        # mean of cheating latent speed
+sigma_tauc   <- 0.15                       # sd of cheating latent speed
+omega_P      <- matrix(c(1,0.7,0.7,1),2,2) # correlation matrix between tau_t and tau_c
+
+# Mean vector of latent speed parameters
+mu_P     <- c(mu_taut ,mu_tauc)
+# Covariance matrix of latent speed parameters
+Sigma_P  <- diag(c(sigma_taut,sigma_tauc))%*%omega_P%*%diag(c(sigma_taut,sigma_tauc))
+
+# Generate latent speed parameters
+tau <- mvrnorm(N,mu_P,Sigma_P)
+
+tau_t <- tau[,1]    # true latent speed parameters 
+tau_c <- tau[,2]    # true cheating speed parameters 
+
+# Generate observed response times according to the model
+
+rt <- matrix(nrow=N,ncol=n)
+
+for(i in 1:N){
+  for(j in 1:n){
+    
+    p_t <- beta[j] - tau_t[i]
+    p_c <- beta[j] - tau_c[i]
+    
+    if(H[i] == 1 & C[j] == 1){
+      rt[i,j] = exp(rnorm(1,p_c,1/alpha[j]))
+    } else {
+      rt[i,j] = exp(rnorm(1,p_t,1/alpha[j]))
+    }
+    
+  }
+}
+
+# Convert it to data frame
+
+rt           <- as.data.frame(rt)
+colnames(rt) <- paste0('RT',1:n)
+
+################################################################################
+#                            RESPONSE ACCURACY DATA
+################################################################################
+
+# Generate item difficulty parameters
+
+b <- rnorm(n,0,1)
+b <- (b-mean(b))/sd(b)
+b
+describe(b)
+
+# Generate true and cheating latent trait parameters
+
+mu_t    <- 0      # mean of true latent trait parameters
+mu_c    <- 3      # mean of cheating latent trait parameters
+sigma_t <- 1      # standard dev. of true latent trait parameters
+sigma_c <- 1.25   # standard dev. of cheating latent trait parameters
+omega_T <- matrix(c(1,0.8,0.8,1),2,2) # correlation matrix between theta_t and theta_c
+
+# Mean vector of latent speed parameters
+mu_T     <- c(mu_t,mu_c)
+
+# Covariance matrix of latent speed parameters
+Sigma_T  <- diag(c(sigma_t,sigma_c))%*%omega_T%*%diag(c(sigma_t,sigma_c))
+
+# Generate latent speed parameters
+th <- mvrnorm(N,mu_T,Sigma_T)
+
+theta_t <- th[,1] 
+theta_c <- th[,2]
+
+describe(theta_t)
+describe(theta_c)
+describe(theta_c - theta_t)
+cor(theta_t,theta_c)
+
+# Generate observed responses
+
+r <- matrix(nrow=N,ncol=n)
+
+for(j in 1:N){
+  for(i in 1:n){
+    
+    p_t <- exp(theta_t[j] - b[i])/(1+exp(theta_t[j] - b[i]))
+    p_c <- exp(theta_c[j] - b[i])/(1+exp(theta_c[j] - b[i]))
+    
+    if(H[j] == 1 & C[i] == 1){
+      r[j,i] = rbinom(1,1,p_c)
+    } else {
+      r[j,i] = rbinom(1,1,p_t)
+    }
+    
+  }
+}
+
+# Convert it to data frame
+
+r           <- as.data.frame(r)
+colnames(r) <- paste0('R',1:n)
+
+################################################################################
+#         Combine Response Time and Response Accuracy Data
+################################################################################
+
+d       <- cbind(rt,r)
+d$group <- H
+d$id    <- 1:nrow(d)
+
+d_long <- reshape(
+  data      = d,
+  varying   = list(RT = paste0("RT", 1:n), R = paste0("R", 1:n)),
+  v.names   = c("RT", "R"),
+  timevar   = "item",
+  times     = 1:n,
+  idvar     = "id",
+  direction = "long"
+)
+
+# Add item status
+
+d_long$compromised <- NA
+
+for(j in 1:n){
+  d_long[d_long$item==j,]$compromised = C[j]
+}
+
+
+describeBy(d_long$RT,list(d_long$group,d_long$compromised),mat=TRUE)
+describeBy(d_long$R,list(d_long$group,d_long$compromised),mat=TRUE)
+
+################################################################################
+
+write.csv(d_long,'./data/simdata_long.csv',
+          row.names = FALSE)  
+
+write.csv(d,'./data/simdata_wide.csv',
+          row.names = FALSE)  
+
+```
+
+## Checking the simulated dataset
+
+The table below shows the average response times for hypothetical examinees in the simulated dataset, grouped by whether they had prior knowledge of the items, for both compromised and uncompromised items. As expected, the average log response time is similar for both groups on uncompromised items. However, examinees with prior knowledge respond faster on compromised items.
+
+```{r, eval=TRUE,echo=FALSE}
+require(dplyr)
+require(DT)
+
+# Create and format the summary table
+summary_table <- d_long %>%
+  group_by(compromised, item) %>%
+  summarise(
+    Honest_Mean = round(mean(RT[group == 0], na.rm = TRUE), 2),
+    Dishonest_Mean = round(mean(RT[group == 1], na.rm = TRUE), 2),
+  ) %>%
+  ungroup() %>%
+  mutate(
+    Compromised_Status = ifelse(compromised == 1, "Compromised", "Uncompromised")
+  ) %>%
+  select(Compromised_Status, item, Honest_Mean, Dishonest_Mean)
+
+# Display the interactive table
+datatable(
+  summary_table,
+  options = list(
+    pageLength = 50,
+    autoWidth = TRUE,
+    order = list(list(0, 'asc')) # Sort by Compromised_Status
+  ),
+  colnames = c(
+    "Compromised Status", "Item Number", 
+    "Honest Group Mean","Dishonest Group Mean"
+  ),
+  rownames = FALSE,
+  caption = "Average Response Times by Group"
+)
+
+```
+
+Similarly, the table below shows the proportion of correct responses for hypothetical examinees in the simulated dataset, grouped by whether they had prior knowledge of the items, for both compromised and uncompromised items. As expected, the proportion of correct responses is similar for both groups on uncompromised items. However, examinees with prior knowledge respond more accurately on compromised items.
+
+```{r, eval=TRUE,echo=FALSE}
+# Create and format the summary table
+summary_table <- d_long %>%
+  group_by(compromised, item) %>%
+  summarise(
+    Honest_Mean = round(mean(R[group == 0], na.rm = TRUE), 2),
+    Dishonest_Mean = round(mean(R[group == 1], na.rm = TRUE), 2),
+  ) %>%
+  ungroup() %>%
+  mutate(
+    Compromised_Status = ifelse(compromised == 1, "Compromised", "Uncompromised")
+  ) %>%
+  select(Compromised_Status, item, Honest_Mean, Dishonest_Mean)
+
+# Display the interactive table
+datatable(
+  summary_table,
+  options = list(
+    pageLength = 50,
+    autoWidth = TRUE,
+    order = list(list(0, 'asc')) # Sort by Compromised_Status
+  ),
+  colnames = c(
+    "Compromised Status", "Item Number", 
+    "Honest Group Mean","Dishonest Group Mean"
+  ),
+  rownames = FALSE,
+  caption = "Proportion of Correct Response by Group"
+)
+
+```
+
+# Fitting the model
+
+The first step is to structure the input data in a list format. This is required because Stan accepts data in a specific format for model fitting. Each element in the list corresponds to a variable used in the Stan model.
+
+```{r, eval=FALSE,echo=TRUE}
+
+data_resp <- list(
+  I              = length(unique(d_long$item)),
+  J              = length(unique(d_long$id)),
+  n_obs          = nrow(d_long),
+  p_loc          = d_long$id,
+  i_loc          = d_long$item,
+  RT             = log(d_long$RT),
+  Y              = d_long$R
+)
+
+```
+
+Before fitting the model, the Stan syntax (.stan file) needs to be compiled into a format that can be executed. This step creates a cmdstan_model object.
+
+```{r, eval=FALSE,echo=TRUE}
+# Compile the model syntax
+mod <- cmdstan_model('./script/dghirt.stan')
+```
+
+## Single chain initialization
+
+In addition to the order constraints ($\tau_c > \tau_t$ and $\theta_c > \theta_t$), discussed earlier, I am also employing a single chain initialization strategy as a complementary approach to further mitigate the risk of label switching. By initializing the parameters near plausible values within the vicinity of a single mode, this method helps stabilize the sampling process and reduces the likelihood of components switching labels during inference. While the order constraint enforces a structural restriction to break the symmetry of the mixture components, single chain initialization adds an extra layer of robustness by anchoring the chains to a specific mode early in the sampling process. Together, these strategies work in tandem to address the challenges posed by label switching, ensuring more reliable and interpretable posterior inferences. For more information, see [this link](https://mc-stan.org/docs/stan-users-guide/problematic-posteriors.html#hacks-as-fixes).
+
+The code below fits the model using a single chain and relatively fewer iterations. 
+
+```{r, eval=FALSE,echo=TRUE}
+fit_init <- mod$sample(
+  data            = data_resp,
+  seed            = 1234,
+  chains          = 1,
+  iter_warmup     = 750,
+  iter_sampling   = 250,
+  refresh         = 10,
+  adapt_delta     = 0.99)
+```
+
+Once we fit the model with a single chain, we extract the model parameters and we will feed these values as starting parameters in the next stage.
+
+## Multi-chain estimation
+
+The next step is to fit the model using multiple chains and more iterations. The code below first creates a list object for starting parameters based on the output from a single chain estimation. Then, we feed these values as starting values to each chain. We are fitting the model with four chains, and each chain has 1000 warmup iterations followed by 500 sampling iterations.
+
+```{r, eval=FALSE,echo=TRUE}
+
+model_par <- fit_init$summary()
+
+theta <- matrix(c(model_par[grep("^person\\[.*,1\\]$", model_par$variable),]$mean,
+                  model_par[grep("^person\\[.*,2\\]$", model_par$variable),]$mean),
+                ncol=2,byrow=FALSE)
+
+delta <- matrix(c(model_par[grep("^delta\\[.*,1\\]$", model_par$variable),]$mean,
+                  model_par[grep("^delta\\[.*,2\\]$", model_par$variable),]$mean),
+                ncol=2,byrow=FALSE)
+
+item <- matrix(c(model_par[grep("^item\\[.*,1\\]$", model_par$variable),]$mean,
+                 model_par[grep("^item\\[.*,2\\]$", model_par$variable),]$mean,
+                 model_par[grep("^item\\[.*,3\\]$", model_par$variable),]$mean),
+               ncol=3,byrow=FALSE)
+
+# A vector of initial P(H=1) parameters, probability of an examinee having item preknowledge
+H <- as.vector(model_par[grep("pH", model_par$variable),]$mean)
+
+# A vector of initial P(C=1) parameters, probability of an item being compromised
+C <- as.vector(model_par[grep("pC", model_par$variable),]$mean)
+
+# Put the initial estimates together as a list
+
+start <- list(item   = item,
+              person = theta,
+              delta  = delta,
+              pH     = H,
+              pC     = C)
+```
+
+```{r, eval=FALSE,echo=TRUE}
+fit <- mod$sample(
+  data            = data_resp,
+  seed            = 1234,
+  chains          = 4,
+  parallel_chains = 4,
+  iter_warmup     = 1000,
+  iter_sampling   = 500,
+  refresh         = 10,
+  init            = list(start,start,start,start),
+  adapt_delta     = 0.99)
+
+
+# Save the model object with all parameters for future use
+
+fit$save_object(file = "./do_not_upload/model_fit.RDS")
+```
+
+# Model Convergence
+
+Ensuring model convergence is essential to verify the reliability of posterior estimates. This section outlines the evaluation of convergence diagnostics for different types of parameters in the model. The analysis follows the robust workflow detailed in Michael Betancourt's [Robust Statistical Worflow with RStan](https://betanalpha.github.io/assets/case_studies/rstan_workflow.html).
+
+```{r, eval=TRUE,echo=TRUE}
+# Extract model summary
+model_summary <- as.data.frame(fit$summary(variables = c("item",
+                                                         "person",
+                                                         "pC",
+                                                         "pH")))
+
+  # Add a column for parameter types extracted from row names
+  
+  model_summary$type <- gsub("\\[.*$", "", model_summary$variable)
+  
+  head(model_summary)
+  
+# Sampler diagnostics
+
+sampler_params <- posterior::as_draws_df(fit$sampler_diagnostics())
+
+```
+
+- The `summary()` function extracts posterior summaries from the fitted model.
+
+- The `gsub()` function removes index annotations (e.g., [1], [2,1]) from parameter names to group parameters by type.
+
+The `model_summary` can be used for further diagnostics.
+
+## Effective Sample Sizes
+
+The minimum size of **effective samples per iteration** is 0.110 for item parameters, 0.296 for person parameters, 0.198 for probability of item compromise (pC), and 0.16 for probability of having item preknowledge(pH). They are all far above the threshold 0.001, indicating no problem in terms of estimating the effective sample sizes.
+
+```{r, eval=TRUE,echo=TRUE}
+# Effective Sample size
+iter <- nrow(sampler_params)   # number of chains x number of sampling iterations
+
+model_summary$n_eff_ratio <- model_summary[,'ess_bulk'] / iter
+
+psych::describeBy(model_summary$n_eff_ratio,
+                  model_summary$type,
+                  mat=TRUE)[,c('group1','min')]
+
+```
+
+The summary of effective sample sizes by each parameter type is below.
+
+```{r, eval=TRUE,echo=TRUE}
+  psych::describeBy(model_summary$ess_bulk,
+                    model_summary$type,
+                    mat=TRUE)[,c('group1','mean','min','max')]
+``` 
+
+
+```{r, eval=TRUE,echo=TRUE}
+# Create a histogram of ESS values grouped by parameter type
+  ggplot(model_summary, aes(x = ess_bulk)) +
+    geom_histogram(fill = "blue", color = "black", alpha = 0.7) +
+    facet_wrap(~type, scales = "free_y",nrow=2) +
+    labs(
+      title = "Distribution of ESS Values by Parameter Type",
+      x = "R-hat",
+      y = "Frequency"
+    ) +
+    theme_minimal()
+```
+
+## Split Rhat summary by Parameter type
+
+All parameters exhibit good convergence with the R-hat values equal or less than 1.05, with 98.5% of the R-hat values are less than 1.01. The highest R-hat value observed is 1.023.
+
+```{r, eval=TRUE,echo=TRUE}
+# Create a histogram of Rhat values grouped by parameter type
+ggplot(model_summary, aes(x = rhat)) +
+    geom_histogram(binwidth = 0.002, fill = "blue", color = "black", alpha = 0.7) +
+    facet_wrap(~type, scales = "free_y",nrow=2) +
+    labs(
+      title = "Distribution of R-hat Values by Parameter Type",
+      x = "R-hat",
+      y = "Frequency"
+    ) +
+    theme_minimal()
+  
+  psych::describeBy(model_summary$rhat,
+                    model_summary$type,
+                    mat=TRUE)[,c('group1','mean','min','max')]
+  
+  sum(model_summary$Rhat<1.01)/nrow(model_summary)
+```
+
+## Tree Depth
+
+The results of the tree depth analysis indicate that none of the 2,000 post-warmup iterations saturated the maximum tree depth of 10 (0%). The majority of iterations achieved a tree depth of 8 (73.6), with a smaller number reaching a tree depth of 7 (15.6%) and a tree depth of 9 (10.8%). This suggests that the sampler operated efficiently and did not encounter issues related to trajectory length limits during the model fit. No further adjustment to the max_treedepth parameter is necessary.
+
+```{r, eval=TRUE,echo=TRUE}
+# Tree depths across iterations
+table(sampler_params$treedepth__)
+```
+
+## E-BFMI
+
+The E-BFMI diagnostic results reveal potential inefficiencies in the exploration of the parameter space across the chains. Specifically:
+
+- Chain 1: E-BFMI = 0.128 
+- Chain 2: E-BFMI = 0.166 
+- Chain 3: E-BFMI = 0.161 
+- Chain 4: E-BFMI = 0.239 
+
+All chains demonstrate particularly poor E-BFMI values, indicating that the Hamiltonian Monte Carlo sampler struggled to efficiently explore the posterior distribution. These low values suggest that the sampler experienced short transitions between trajectories, potentially slowing down exploration and reducing the reliability of the sampling process.
+
+```{r, eval=TRUE,echo=TRUE}
+e_bfmi <- c()
+  for (n in 1:4) {
+    energies = sampler_params[sampler_params$.chain==n,]$energy__
+    numer = sum(diff(energies)**2) / length(energies)
+    denom = var(energies)
+    e_bfmi[n] = numer / denom
+    print(sprintf('Chain %s: E-BFMI = %s', n, numer / denom))
+  }
+```
+
+## Divergences
+
+The divergence diagnostic for this model fit indicates no divergent transitions out of the total iterations (0%). This result suggests that the Hamiltonian Monte Carlo sampler explored the posterior distribution effectively, encountering no problematic regions or pathological neighborhoods.
+
+```{r, eval=TRUE,echo=TRUE}
+100 * mean(sampler_params$divergent__)
+```
+
+# Parameter Estimates
+
+## Person Parameter Estimates
+
+The true latent trait parameter estimates ($\theta_t$) have a mean of -0.5 and a standard deviation of 1.07. In contrast, the cheating latent trait parameter estimates ($\theta_c$) exhibit a higher mean of 2.78 with a standard deviation of 1.21. 
+
+```{r, eval=TRUE,echo=TRUE}
+theta_t <- fit$summary(variables ='thetat')
+theta_c <- fit$summary(variables ='thetac')
+
+psych::describe(theta_t$mean)
+psych::describe(theta_c$mean)
+
+```
+
+The true latent speed parameter estimates, $\tau_t$ has a mean of zero with a standard deviation of 0.1. The cheating latent speed parameter estimates, $\tau_c$, has a higher mean (0.26) and standard deviation (0.11).
+
+```{r, eval=TRUE,echo=TRUE}
+tau_t <- fit$summary(variables ='taut')
+tau_c <- fit$summary(variables ='tauc')
+
+psych::describe(tau_t$mean)
+psych::describe(tau_c$mean)
+```
+
+
+```{r, eval=TRUE,echo=FALSE}
+tab <- fit$summary(variables = c("thetat"))[,c(-3,-5,-10)]
+datatable(
+  tab,
+  options = list(
+    pageLength = 10,
+    autoWidth = FALSE),
+  colnames = c(
+    "Parameter","Posterior Mean", "Posterior SD", "5%","95%","Rhat","ESS"
+  ),
+  caption = "True Latent Trait Parameter Estimates"
+)%>%
+  formatStyle(
+    columns = 1:ncol(tab),   # Select all columns to style
+    `vertical-align` = "middle", # Center vertically
+    `text-align` = "center"  # Center horizontally
+  ) %>%
+    formatRound(
+    columns = c(2,3,4,5,6), # Format all numeric columns except ESS (column 6)
+    digits = 2                  # Round to two decimals
+  ) %>%
+  formatRound(
+    columns = 7,               # Format ESS column
+    digits = 0                 # Round to no decimals
+  )
+```
+
+```{r, eval=TRUE,echo=FALSE}
+tab <- fit$summary(variables = c("thetac"))[,c(-3,-5,-10)]
+datatable(
+  tab,
+  options = list(
+    pageLength = 10,
+    autoWidth = FALSE),
+  colnames = c(
+    "Parameter","Posterior Mean", "Posterior SD", "5%","95%","Rhat","ESS"
+  ),
+  caption = "Cheating Latent Trait Parameter Estimates"
+)%>%
+  formatStyle(
+    columns = 1:ncol(tab),   # Select all columns to style
+    `vertical-align` = "middle", # Center vertically
+    `text-align` = "center"  # Center horizontally
+  ) %>%
+    formatRound(
+    columns = c(2,3,4,5,6), # Format all numeric columns except ESS (column 6)
+    digits = 2                  # Round to two decimals
+  ) %>%
+  formatRound(
+    columns = 7,               # Format ESS column
+    digits = 0                 # Round to no decimals
+  )
+```
+
+
+```{r, eval=TRUE,echo=FALSE}
+tab <- fit$summary(variables = c("taut"))[,c(-3,-5,-10)]
+datatable(
+  tab,
+  options = list(
+    pageLength = 10,
+    autoWidth = FALSE),
+  colnames = c(
+    "Parameter","Posterior Mean", "Posterior SD", "5%","95%","Rhat","ESS"
+  ),
+  caption = "True Latent Speed Parameter Estimates"
+)%>%
+  formatStyle(
+    columns = 1:ncol(tab),   # Select all columns to style
+    `vertical-align` = "middle", # Center vertically
+    `text-align` = "center"  # Center horizontally
+  ) %>%
+    formatRound(
+    columns = c(2,3,4,5,6), # Format all numeric columns except ESS (column 6)
+    digits = 2                  # Round to two decimals
+  ) %>%
+  formatRound(
+    columns = 7,               # Format ESS column
+    digits = 0                 # Round to no decimals
+  )
+```
+
+```{r, eval=TRUE,echo=FALSE}
+tab <- fit$summary(variables = c("tauc"))[,c(-3,-5,-10)]
+datatable(
+  tab,
+  options = list(
+    pageLength = 10,
+    autoWidth = FALSE),
+  colnames = c(
+    "Parameter","Posterior Mean", "Posterior SD", "5%","95%","Rhat","ESS"
+  ),
+  caption = "Cheating Latent Speed Parameter Estimates"
+)%>%
+  formatStyle(
+    columns = 1:ncol(tab),   # Select all columns to style
+    `vertical-align` = "middle", # Center vertically
+    `text-align` = "center"  # Center horizontally
+  ) %>%
+    formatRound(
+    columns = c(2,3,4,5,6), # Format all numeric columns except ESS (column 6)
+    digits = 2                  # Round to two decimals
+  ) %>%
+  formatRound(
+    columns = 7,               # Format ESS column
+    digits = 0                 # Round to no decimals
+  )
+```
+## Item Parameters
+
+The log of time discrimination parameter estimates, $ln(\alpha)$, has a mean of 0.51 with a standard deviation of 0.20, and the time intensity parameter estimates has a mean (3.50) and standard deviation of 0.30. The item difficulty parameter estimates,$b$, has a mean of 0 with a standard deviation of 1.14.
+
+```{r, eval=TRUE,echo=TRUE}
+
+b <- fit$summary(variables = c("b"))
+psych::describe(b$mean)
+
+beta <- fit$summary(variables = c("beta"))
+psych::describe(beta$mean)
+
+ipar     <- fit$summary(variables = c("item"))
+ln_alpha <- ipar[grepl("item\\[.*,1\\]", ipar$variable),]
+psych::describe(ln_alpha$mean)
+
+```
+
+
+```{r, eval=TRUE,echo=FALSE}
+datatable(
+  ln_alpha[,c(-3,-5,-10)],
+  options = list(
+    pageLength = 10,
+    autoWidth = FALSE),
+  colnames = c(
+    "Parameter","Posterior Mean", "Posterior SD", "5%","95%","Rhat","ESS"
+  ),
+  caption = "Log of Time Discrimination Parameter Estimates"
+)%>%
+  formatStyle(
+    columns = 1:ncol(tab),   # Select all columns to style
+    `vertical-align` = "middle", # Center vertically
+    `text-align` = "center"  # Center horizontally
+  ) %>%
+    formatRound(
+    columns = c(2,3,4,5,6), # Format all numeric columns except ESS (column 6)
+    digits = 2                  # Round to two decimals
+  ) %>%
+  formatRound(
+    columns = 7,               # Format ESS column
+    digits = 0                 # Round to no decimals
+  )
+```
+
+```{r, eval=TRUE,echo=FALSE}
+datatable(
+ beta[,c(-3,-5,-10)],
+  options = list(
+    pageLength = 10,
+    autoWidth = FALSE),
+  colnames = c(
+    "Parameter","Posterior Mean", "Posterior SD", "5%","95%","Rhat","ESS"
+  ),
+  caption = "Time Intensity Parameter Estimates"
+)%>%
+  formatStyle(
+    columns = 1:ncol(tab),   # Select all columns to style
+    `vertical-align` = "middle", # Center vertically
+    `text-align` = "center"  # Center horizontally
+  ) %>%
+    formatRound(
+    columns = c(2,3,4,5,6), # Format all numeric columns except ESS (column 6)
+    digits = 2                  # Round to two decimals
+  ) %>%
+  formatRound(
+    columns = 7,               # Format ESS column
+    digits = 0                 # Round to no decimals
+  )
+```
+
+```{r, eval=TRUE,echo=FALSE}
+datatable(
+  b[,c(-3,-5,-10)],
+  options = list(
+    pageLength = 10,
+    autoWidth = FALSE),
+  colnames = c(
+    "Parameter","Posterior Mean", "Posterior SD", "5%","95%","Rhat","ESS"
+  ),
+  caption = "Item Difficulty Parameter Estimates"
+)%>%
+  formatStyle(
+    columns = 1:ncol(tab),   # Select all columns to style
+    `vertical-align` = "middle", # Center vertically
+    `text-align` = "center"  # Center horizontally
+  ) %>%
+    formatRound(
+    columns = c(2,3,4,5,6), # Format all numeric columns except ESS (column 6)
+    digits = 2                  # Round to two decimals
+  ) %>%
+  formatRound(
+    columns = 7,               # Format ESS column
+    digits = 0                 # Round to no decimals
+  )
+```
+
+## Interpreting P(C=1) and evaluating predictive performance in detecting compromised items
+
+Two groups of items were clearly separated by the probability estimates of being compromised. The probabilities ranged from 0.07 to 0.37 with a mean of 0.21 and standard deviation of 0.09 for uncompromised items (group1 = 0), and ranged from 0.79 to 0.93 with a mean of 0.87 and standard deviation of 0.04 for compromised items (group1 = 1).
+
+```{r, eval=TRUE,echo=TRUE}
+# Retrive the true item compromise status
+# from long format data
+
+C_vec <- c()
+
+for(kk in 1:30){
+  C_vec[kk] = unique(d_long[d_long$item==kk,]$compromised)
+}
+
+pC <- fit$summary(variables = c("pC"))$mean
+
+psych::describeBy(pC,C_vec,mat=TRUE)[,c('group1','n','mean','sd','min','max')]
+
+plot(density(pC[C_vec==0]),xlim=c(0,1),main="",ylim = c(0,15))
+points(density(pC[C_vec==1]),lty=2,type='l')
+```
+
+As a numerical measure, the Area Under the Curve (AUC) was 1, indicating a perfect separation between compromised and uncompromised items.
+
+```{r, eval=TRUE,echo=TRUE}
+require(pROC)
+
+auc(C_vec,pC)
+
+roc_analysis <- roc(response = C_vec,
+                    predictor = pC)
+
+plot(1-roc_analysis$specificities,
+     roc_analysis$sensitivities,
+     xlim = c(0,1),ylim=c(0,1),
+     xlab = 'False Positive Rate (1-Specificity)',
+     ylab = 'True Positive Rate (Sensitivity)',
+     type='l')
+
+my_thresholds <- seq(from=0.5,to=0.8,by=0.01)
+
+coords(roc_analysis, 
+       my_thresholds, 
+       input="threshold", 
+       ret=c("threshold","specificity", "sensitivity"))
+
+```
+
+```{r, eval=TRUE,echo=FALSE}
+tab <- fit$summary(variables = c("pC"))[,c(-3,-5,-10)]
+
+datatable(
+  tab,
+  options = list(
+    pageLength = 10,
+    autoWidth = FALSE),
+  colnames = c(
+    "Parameter","Posterior Mean", "Posterior SD", "5%","95%","Rhat","ESS"
+  ),
+  caption = "Probability Estimates of Items Being Compromised"
+)%>%
+  formatStyle(
+    columns = 1:ncol(tab),   # Select all columns to style
+    `vertical-align` = "middle", # Center vertically
+    `text-align` = "center"  # Center horizontally
+  ) %>%
+    formatRound(
+    columns = c(2,3,4,5,6), # Format all numeric columns except ESS (column 6)
+    digits = 2                  # Round to two decimals
+  ) %>%
+  formatRound(
+    columns = 7,               # Format ESS column
+    digits = 0                 # Round to no decimals
+  )
+```
+
+## Interpreting P(H=1) and evaluating predictive performance in detecting simulees with item preknowledge
+
+Two groups of examinees were clearly separated by the probability estimates of examinees having item preknowledge, indicating that model successfully picked up the signal in the simulated dataset. The probabilities ranged from 0.18 to 0.80 with a mean of 0.41 and standard deviation of 0.14 for honest simulees (group1 = 0), and ranged from 0.43 to 0.89 with a mean of 0.79 and standard deviation of 0.10 for dishonest simulees (group1 = 1).
+
+```{r, eval=TRUE,echo=TRUE}
+pH <- fit$summary(variables = c("pH"))$mean
+
+psych::describeBy(pH,d_wide$group,mat=TRUE)[,c('group1','n','mean','sd','min','max')]
+
+plot(density(pH[d_wide$group==0]),xlim=c(0,1),main="",ylim = c(0,8))
+points(density(pH[d_wide$group==1]),lty=2,type='l')
+```
+
+As a numerical measure, the Area Under the Curve (AUC) was 0.977, indicating strong separation between groups with and without item preknowledge by the probability estimates. 
+
+```{r, eval=TRUE,echo=TRUE}
+
+auc(d_wide$group,pH)
+
+
+roc_analysis <- roc(response = d_wide$group,
+                    predictor = pH)
+
+plot(1-roc_analysis$specificities,
+     roc_analysis$sensitivities,
+     xlim = c(0,1),ylim=c(0,1),
+     xlab = 'False Positive Rate (1-Specificity)',
+     ylab = 'True Positive Rate (Sensitivity)',
+     type='l')
+
+my_thresholds <- seq(from=0.5,to=0.8,by=0.01)
+
+coords(roc_analysis, 
+       my_thresholds, 
+       input="threshold", 
+       ret=c("threshold","specificity", "sensitivity"))
+
+
+```
+
+
+```{r, eval=TRUE,echo=FALSE}
+tab <- fit$summary(variables = c("pH"))[,c(-3,-5,-10)]
+
+datatable(
+  tab,
+  options = list(
+    pageLength = 10,
+    autoWidth = FALSE),
+  colnames = c(
+    "Parameter","Posterior Mean", "Posterior SD", "5%","95%","Rhat","ESS"
+  ),
+  caption = "Probability Estimates of Examinees Having Item Preknowledge"
+)%>%
+  formatStyle(
+    columns = 1:ncol(tab),   # Select all columns to style
+    `vertical-align` = "middle", # Center vertically
+    `text-align` = "center"  # Center horizontally
+  ) %>%
+    formatRound(
+    columns = c(2,3,4,5,6), # Format all numeric columns except ESS (column 6)
+    digits = 2                  # Round to two decimals
+  ) %>%
+  formatRound(
+    columns = 7,               # Format ESS column
+    digits = 0                 # Round to no decimals
+  )
+```
+
+
+# Appendix
+
+Define a multivariate normal distribution with two variables, $\boldsymbol{\theta}_t$ and $\boldsymbol{\tau}_t$.
+
+$$
+\begin{pmatrix}
+\boldsymbol{\theta}_t \\
+\boldsymbol{\tau}_t
+\end{pmatrix}
+\sim N\left(
+\boldsymbol{\mu}_T,
+\boldsymbol{\Sigma}_{T}
+\right)
+$$
+
+Define another multivariate normal distribution with two other variables.
+
+$$
+\begin{pmatrix}
+\boldsymbol{\Delta}_{\boldsymbol{\theta}} \\
+\boldsymbol{\Delta}_{\boldsymbol{\tau}}
+\end{pmatrix}
+\sim N\left(
+\boldsymbol{\mu}_{\boldsymbol{\Delta}},
+\boldsymbol{\Sigma}_{\boldsymbol{\Delta}}
+\right)
+$$
+
+Then, define $\boldsymbol{\theta}_c$ and $\boldsymbol{\tau}_c$ as follows.
+
+$$
+\boldsymbol{\theta}_c = \boldsymbol{\theta}_t + \boldsymbol{\Delta}_{\boldsymbol{\theta}} \\
+\boldsymbol{\tau}_c = \boldsymbol{\tau}_t + \boldsymbol{\Delta}_{\boldsymbol{\tau}}
+$$
+
+Let $\boldsymbol{\Sigma}_T$ be the covariance matrix between $\boldsymbol{\theta}_t$ and $\boldsymbol{\tau}_t$.
+
+$$
+\boldsymbol{\Sigma}_{T} =
+\begin{pmatrix}
+\sigma_{\boldsymbol{\theta}_t} & \sigma_{\boldsymbol{\theta}_t, \boldsymbol{\tau}_t} \\
+\sigma_{\boldsymbol{\theta}_t, \boldsymbol{\tau}_t} & \sigma_{\boldsymbol{\tau}_t}
+\end{pmatrix}
+$$
+
+Let $\boldsymbol{\Sigma}_{\boldsymbol{\Delta}}$ be the covariance matrix of the change in $\boldsymbol{\theta}_t$ and $\boldsymbol{\tau}_t$ due to item preknowledge.
+
+$$
+\boldsymbol{\Sigma}_{\boldsymbol{\Delta}} =
+\begin{pmatrix}
+\sigma_{\boldsymbol{\Delta}_{\boldsymbol{\theta}}} & \sigma_{\boldsymbol{\Delta}_{\boldsymbol{\theta}}, \boldsymbol{\Delta}_{\boldsymbol{\tau}}} \\
+\sigma_{\boldsymbol{\Delta}_{\boldsymbol{\theta}}, \boldsymbol{\Delta}_{\boldsymbol{\tau}}} & \sigma_{\boldsymbol{\Delta}_{\boldsymbol{\tau}}}
+\end{pmatrix}
+$$
+
+All cross-covariances between  $(\boldsymbol{\theta}_t, \boldsymbol{\tau}_t)$ and $(\boldsymbol{\Delta}_{\boldsymbol{\theta}}, \boldsymbol{\Delta}_{\boldsymbol{\tau}})$ are zero by independence.
+
+Now, we can derive the elements of the implied 4 x 4 covariance matrix for $\boldsymbol{\theta}_t$,$\boldsymbol{\theta}_c$,$\boldsymbol{\tau}_t$, and $\boldsymbol{\tau}_c$.
+
+1. $\text{Cov}(\boldsymbol{\theta}_t, \boldsymbol{\theta}_t)$
+
+$$\text{Cov}(\boldsymbol{\theta}_t, \boldsymbol{\theta}_t) = \text{Var}(\boldsymbol{\theta}_t) = \sigma_{\boldsymbol{\theta}_t}^2$$
+
+2. $\text{Cov}(\boldsymbol{\theta}_t, \boldsymbol{\theta}_c)$
+
+$$
+\begin{aligned}
+\text{Cov}(\boldsymbol{\theta}_t, \boldsymbol{\theta}_c) &= \text{Cov}(\boldsymbol{\theta}_t, \boldsymbol{\theta}_t + \boldsymbol{\Delta}_{\theta}) \\
+&= \text{Cov}(\boldsymbol{\theta}_t, \boldsymbol{\theta}_t) + \text{Cov}(\boldsymbol{\theta}_t, \boldsymbol{\Delta}_{\theta}) \\
+&= \sigma^2_{\boldsymbol{\theta}_t} + 0 \\
+&= \sigma^2_{\boldsymbol{\theta}_t}
+\end{aligned}
+$$
+
+3. $\text{Cov}(\boldsymbol{\theta}_t, \boldsymbol{\tau}_t)$
+
+$$
+\text{Cov}(\boldsymbol{\theta}_t, \boldsymbol{\tau}_t) = \sigma_{\boldsymbol{\theta}_t, \boldsymbol{\tau}_t}
+$$
+4. $\text{Cov}(\boldsymbol{\theta}_t, \boldsymbol{\tau}_c)$
+
+$$
+\begin{aligned}
+\text{Cov}(\boldsymbol{\theta}_t, \boldsymbol{\tau}_c) &= \text{Cov}(\boldsymbol{\theta}_t, \boldsymbol{\tau}_t + \boldsymbol{\Delta}_{\tau}) \\
+&= \text{Cov}(\boldsymbol{\theta}_t, \boldsymbol{\tau}_t) + \text{Cov}(\boldsymbol{\theta}_t, \boldsymbol{\Delta}_{\tau}) \\
+&= \sigma_{\boldsymbol{\theta}_t, \boldsymbol{\tau}_t} + 0 \\
+&= \sigma_{\boldsymbol{\theta}_t, \boldsymbol{\tau}_t}
+\end{aligned}
+$$
+
+5. $\text{Cov}(\boldsymbol{\theta}_c, \boldsymbol{\theta}_c)$
+
+$$
+\begin{aligned}
+\text{Cov}(\boldsymbol{\theta}_c, \boldsymbol{\theta}_c) &= \text{Var}(\boldsymbol{\theta}_t + \boldsymbol{\Delta}_{\theta}) \\
+&= \text{Var}(\boldsymbol{\theta}_t) + \text{Var}(\boldsymbol{\Delta}_{\theta}) + 2\,\text{Cov}(\boldsymbol{\theta}_t, \boldsymbol{\Delta}_{\theta}) \\
+&= \sigma^2_{\boldsymbol{\theta}_t} + \sigma^2_{\boldsymbol{\Delta}_{\theta}} + 0 \\
+&= \sigma^2_{\boldsymbol{\theta}_t} + \sigma^2_{\boldsymbol{\Delta}_{\theta}}
+\end{aligned}
+$$
+
+6. $\text{Cov}(\boldsymbol{\theta}_c, \boldsymbol{\tau}_t)$
+
+$$
+\begin{aligned}
+\text{Cov}(\boldsymbol{\theta}_c, \boldsymbol{\tau}_t) &= \text{Cov}(\boldsymbol{\theta}_t + \boldsymbol{\Delta}_{\theta}, \boldsymbol{\tau}_t) \\
+&= \text{Cov}(\boldsymbol{\theta}_t, \boldsymbol{\tau}_t) + \text{Cov}(\boldsymbol{\Delta}_{\theta}, \boldsymbol{\tau}_t) \\
+&= \sigma_{\boldsymbol{\theta}_t, \boldsymbol{\tau}_t} + 0 \\
+&= \sigma_{\boldsymbol{\theta}_t, \boldsymbol{\tau}_t}
+\end{aligned}
+$$
+
+7. $\text{Cov}(\boldsymbol{\theta}_c, \boldsymbol{\tau}_c)$
+
+$$
+\begin{aligned}
+\text{Cov}(\boldsymbol{\theta}_c, \boldsymbol{\tau}_c) &= \text{Cov}(\boldsymbol{\theta}_t + \boldsymbol{\Delta}_{\theta}, \boldsymbol{\tau}_t + \boldsymbol{\Delta}_{\tau}) \\
+&= \text{Cov}(\boldsymbol{\theta}_t, \boldsymbol{\tau}_t) + \text{Cov}(\boldsymbol{\theta}_t, \boldsymbol{\Delta}_{\tau}) \\
+&\qquad + \text{Cov}(\boldsymbol{\Delta}_{\theta}, \boldsymbol{\tau}_t) + \text{Cov}(\boldsymbol{\Delta}_{\theta}, \boldsymbol{\Delta}_{\tau}) \\
+&= \sigma_{\boldsymbol{\theta}_t, \boldsymbol{\tau}_t} + 0 + 0 + \sigma_{\boldsymbol{\Delta}_{\theta}, \boldsymbol{\Delta}_{\tau}} \\
+&= \sigma_{\boldsymbol{\theta}_t, \boldsymbol{\tau}_t} + \sigma_{\boldsymbol{\Delta}_{\theta}, \boldsymbol{\Delta}_{\tau}}
+\end{aligned}
+$$
+
+8. $\text{Cov}(\boldsymbol{\tau}_t, \boldsymbol{\tau}_t)$
+
+$$
+\text{Cov}(\boldsymbol{\tau}_t, \boldsymbol{\tau}_t) = \text{Var}(\boldsymbol{\tau}_t) = \sigma_{\boldsymbol{\tau}_t}^2
+$$
+9. $\text{Cov}(\boldsymbol{\tau}_t, \boldsymbol{\tau}_c)$
+
+$$
+\begin{aligned}
+\text{Cov}(\boldsymbol{\tau}_t, \boldsymbol{\tau}_c) &= \text{Cov}(\boldsymbol{\tau}_t, \boldsymbol{\tau}_t + \boldsymbol{\Delta}_{\tau}) \\
+&= \text{Cov}(\boldsymbol{\tau}_t, \boldsymbol{\tau}_t) + \text{Cov}(\boldsymbol{\tau}_t, \boldsymbol{\Delta}_{\tau}) \\
+&= \sigma^2_{\boldsymbol{\tau}_t} + 0 \\
+&= \sigma^2_{\boldsymbol{\tau}_t}
+\end{aligned}
+$$
+
+10. $\text{Cov}(\boldsymbol{\tau}_c, \boldsymbol{\tau}_c)$
+
+$$
+\begin{aligned}
+\text{Cov}(\boldsymbol{\tau}_c, \boldsymbol{\tau}_c) &= \text{Var}(\boldsymbol{\tau}_t + \boldsymbol{\Delta}_{\tau}) \\
+&= \text{Var}(\boldsymbol{\tau}_t) + \text{Var}(\boldsymbol{\Delta}_{\tau}) + 2\,\text{Cov}(\boldsymbol{\tau}_t, \boldsymbol{\Delta}_{\tau}) \\
+&= \sigma^2_{\boldsymbol{\tau}_t} + \sigma^2_{\boldsymbol{\Delta}_{\tau}} + 0 \\
+&= \sigma^2_{\boldsymbol{\tau}_t} + \sigma^2_{\boldsymbol{\Delta}_{\tau}}
+\end{aligned}
+$$
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+</font>
